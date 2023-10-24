@@ -1,13 +1,18 @@
 import userModel from "../Models/userModel.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import Stripe from 'stripe';
 import User from "../Models/userModel.js";
 import  Token  from '../Models/token.js';
+
 
 import sendEmail from "../utils/sendEmail.js";
 import crypto from "crypto"
 import { request } from "http";
 import { uploadToCloudinary } from "../utils/cloudinary.js";
+import Course from "../Models/courseModel.js";
+
+const stripe = new Stripe('sk_test_51O3eavSIVDzsjQ4Oyvtv0Ii89ZxG2Y4sugke9flagrkwliZMRLQCSvAncDqQJMI072fa23ejnLpoQ7Vzlu4Tj3C3005lsCvG3e');
 
 const generateOtp=()=>{
   try {
@@ -37,19 +42,24 @@ const userRegister = async (req, res) => {
       password: hashpass,
     });
     const userData = await user.save();
-
-  //  const token=await new Token({
-  //   userId:user._id,
-  //   token:crypto.randomBytes(32).toString("hex")
-
-  //  }).save();
    console.log(process.env.BASE_URL);
    const OTP=generateOtp()
    console.log(OTP,'otp');
-   const tokendata=await new Token({
-    userId:user._id,
-    token:OTP
-   }).save()
+   const exists=await Token.findOne({userId:user._id})
+   if(exists){
+    await Token.findOneAndUpdate({userId:user._id},{$set:{token:OTP}})
+    let subject='Verify Email'
+    let text=`<div>
+     <h1>OTP for verification</h1>
+     <p>${OTP}</p>
+    </div>`
+     await sendEmail(user.email,subject,text)
+     res.status(200).json({message:"an email sent to your account,please verify",register:true,id:user._id})
+   }else{
+    const tokendata=await new Token({
+      userId:user._id,
+      token:OTP
+     }).save()
    let subject='Verify Email'
    let text=`<div>
     <h1>OTP for verification</h1>
@@ -60,6 +70,7 @@ const userRegister = async (req, res) => {
     
     
     }
+  }
   
   
   } catch (error) {
@@ -67,6 +78,46 @@ const userRegister = async (req, res) => {
     res.status(500).json({ message: "Server error at registration" });
   }
 };
+
+export const resendotp=async(req,res)=>{
+  try{
+    const {id}=req.params
+    console.log('heyy');
+    const OTP=generateOtp()
+    console.log(OTP,'otp');
+    const user=await User.findById(id)
+    const exists=await Token.findOne({userId:id})
+    if(exists){
+     await Token.findOneAndUpdate({userId:id},{$set:{token:OTP}})
+     let subject='Verify Email'
+     let text=`<div>
+      <h1>OTP for verification</h1>
+      <p>${OTP}</p>
+     </div>`
+      await sendEmail(user.email,subject,text)
+      res.status(200).json({message:"an email sent to your account,please verify",register:true,id:user._id})
+    }else{
+    const tokendata=await new Token({
+     userId:user._id,
+     token:OTP
+    }).save()
+    let subject='Verify Email'
+    let text=`<div>
+     <h1>OTP for verification</h1>
+     <p>${OTP}</p>
+    </div>`
+     await sendEmail(user.email,subject,text)
+     res.status(200).json({message:"an email sent to your account,please verify",register:true,id:user._id})
+     
+     
+     }
+   
+   
+
+  }catch(error){
+    console.log(error);
+  }
+}
 
 export const Login = async (req, res) => {
   console.log("yeaaah")
@@ -171,6 +222,7 @@ export const getUser = async (req, res, next) => {
 };
 export const editProfile=async(req,res)=>{
   try{
+    console.log("Editt")
    console.log(req.body);
    let user=await User.findByIdAndUpdate(req.body.id,{$set:{userName:req.body.username}});
 return res.status(200).json({data:user,status:true})
@@ -195,7 +247,129 @@ export const editImage=async(req,res)=>{
 
   }
 }
+export const getCourse=async(req,res)=>{
+  try {
+    const courseLists = await Course.find({is_delete:false}).limit(6);
+    return res.status(200).json({courseLists});
+   
+    
+    
+  } catch (error) {
+    console.log(error);
+    
+  }
+}
 
+export const makepayment=async(req,res)=>{
+  try{
+    const {id }= req.body
+   
+    const singleCourse = await Course.findById(id);
+    const price = singleCourse.price
+    console.log(price);
+    //create paymentintent
+    const paymentintent = await stripe.checkout.sessions.create({
+      payment_method_types:['card'],
+      amount: price * 100,
+      currency: "inr",
+      automatic_payment_methods: {
+        enabled: true,
+      },
+      mode:"payment"
+    });
+    if(paymentintent){
+      res.status(200).json({
+        success:true,
+        clientSecret: paymentintent.client_secret,
+      });
+    }else{
+      res.status(404).json({
+        success:false,
+        message:"something went wrong"
+      })
+    }
+    
+    
+
+  }catch(error){
+    console.log(error);
+  }
+}
+// export const makepayment = async (req, res) => {
+//   try {
+//     const { id } = req.body;
+//     const singleCourse = await Course.findById(id);
+//     const price = singleCourse.price;
+//     const session = await stripe.checkout.sessions.create({
+//       payment_method_types: ['card'],
+//       line_items: [
+//         {
+//           price: price * 100,
+//           quantity: 1,
+//           currency: "inr"
+//         },
+//       ],
+//       mode: 'payment',
+//       success_url: 'https:/localhost/5173/success',
+//       cancel_url: 'https:/localhost/5173/cancel',
+//     });
+    
+//     res.status(200).json({
+//       success: true,
+//       sessionId: session.id,
+//     });
+//   } catch (error) {
+//     console.log(error);
+//   }
+// };
+export const getSingle = async (req, res) => {
+  console.log("in usr course")
+  try {
+    const id = req.params.id; // Assuming you are passing the course ID as a route parameter
+   
+    const singleCourse = await Course.findById(id);
+
+    if (!singleCourse) {
+      return res.status(404).json({ message: "Course not found", status: false });
+    }
+
+    return res.status(200).json({ data: singleCourse });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "An error occurred while fetching the course", status: false });
+  }
+};
+
+export const getPaymentData=async(req,res)=>{
+  try {
+    const stripe=new Stripe('sk_test_51O3eavSIVDzsjQ4Oyvtv0Ii89ZxG2Y4sugke9flagrkwliZMRLQCSvAncDqQJMI072fa23ejnLpoQ7Vzlu4Tj3C3005lsCvG3e')
+        const {id}=req.params
+        const usercourse=await Course.findById(id)
+        const price=usercourse.price
+    const paymentIntent = await stripe.paymentIntents.create({
+            amount: price*100,
+            currency: "inr",
+            automatic_payment_methods: {
+              enabled: true,
+            },
+          });
+          console.log(paymentIntent);
+          res.status(200).json({
+            clientSecret: paymentIntent.client_secret, price})
+  } catch (error) {
+    console.log(error.message);
+  }
+}
+
+export const submitPayment=async(req,res)=>{
+  try {
+    const {userid,id}=req.body
+    let student=await User.findByIdAndUpdate(userid,{$push:{paidCourses:id}},{upsert:true,new:true})
+    return res.status(200).json({data:student, status:true})
+  } catch (error) {
+    console.log(error.message);
+  }
+}
 
 export const verifyEmail=async(req,res)=>{
   try {

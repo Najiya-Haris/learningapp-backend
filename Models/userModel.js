@@ -27,8 +27,10 @@ const userSchema = new mongoose.Schema({
         default:false
     },
     image:{
-        type:String,
-        required:true
+        type:String
+    },
+    paidCourses:{
+        type:[{type:mongoose.Types.ObjectId, ref:'Course'}],
     }
 });
 
